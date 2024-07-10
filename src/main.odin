@@ -1,6 +1,7 @@
 package main
 import "core:fmt"
 import "core:math/rand"
+import "core:os"
 import "core:strconv"
 import "core:strings"
 import rl "vendor:raylib"
@@ -17,6 +18,7 @@ Color :: enum {
 
 Owner :: enum {
 	BOARD,
+	BAG,
 	PLAYER1,
 	PLAYER2,
 }
@@ -26,7 +28,7 @@ Vector2 :: [2]u8
 Token :: struct {
 	color:       Color,
 	owner:       Owner,
-	highlighter: bool,
+	highlighted: bool,
 }
 
 Scroll :: struct {
@@ -71,6 +73,10 @@ color_to_rlcolor :: proc(color: Color) -> rl.Color {
 draw_board :: proc(board: []^Token, positions: []Vector2) {
 	rl.DrawRectangleV({OFFSET_X - 10, OFFSET_Y - 10}, {520, 520}, rl.BROWN)
 	for i in 0 ..< TOKEN_NUMBER {
+		if board[i] == nil {
+			continue
+		}
+
 		token := board[i]^
 		if token.owner != Owner.BOARD {
 			continue
@@ -119,6 +125,8 @@ draw_scrolls :: proc(scrolls: []Scroll) {
 			y = WINDOW_HEIGHT - SCROLL_HEIGHT - GAP
 			text_x = x - GAP
 			text_y = y + SCROLL_HEIGHT / 4
+		case Owner.BAG:
+			os.exit(1)
 		}
 
 		rl.DrawRectangleV({f32(x), f32(y)}, {SCROLL_WIDTH, SCROLL_HEIGHT}, rl.BEIGE)
@@ -158,7 +166,7 @@ count_owner_tokens :: proc(tokens: []Token, owner: Owner) -> map[Color]uint {
 }
 
 draw_player_tokens :: proc(tokens: []Token, player: Owner) {
-	assert(player != Owner.BOARD)
+	assert(player != Owner.BOARD && player != Owner.BAG)
 
 	token_count := count_owner_tokens(tokens, player)
 
@@ -191,6 +199,29 @@ draw_player_tokens :: proc(tokens: []Token, player: Owner) {
 			color,
 		)
 	}
+}
+
+refill :: proc(tokens: []Token, board: []^Token) {
+	refills: [dynamic]^Token
+
+	for &token in tokens {
+		if token.owner == Owner.BAG {
+			append(&refills, &token)
+		}
+	}
+	rand.shuffle(refills[:])
+
+	for i in 0 ..< TOKEN_NUMBER {
+		if board[i] == nil {
+			board[i] = pop(&refills)
+			board[i].owner = Owner.BOARD
+		}
+		if len(refills) == 0 {
+			break
+		}
+	}
+
+	fmt.println(board)
 }
 
 main :: proc() {
@@ -238,18 +269,17 @@ main :: proc() {
 	scrolls: [3]Scroll
 	scrolls[0].owner = Owner.PLAYER2
 
-	fmt.println(tokens)
-	fmt.println(scrolls)
-
 	board: [TOKEN_NUMBER]^Token
 	for i in 0 ..< TOKEN_NUMBER {
 		board[i] = &tokens[i]
 	}
 	rand.shuffle(board[:])
 
-	fmt.println(count_owner_tokens(tokens[:], Owner.PLAYER1))
-
 	for !rl.WindowShouldClose() {
+		if rl.IsKeyDown(.ENTER) {
+			refill(tokens[:], board[:])
+		}
+
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.RAYWHITE)
 
