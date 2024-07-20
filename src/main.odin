@@ -26,9 +26,13 @@ Owner :: enum {
 Vector2 :: [2]u8
 
 Token :: struct {
-	color:       Color,
-	owner:       Owner,
-	highlighted: bool,
+	color: Color,
+	owner: Owner,
+}
+
+Cell :: struct {
+	is_highlighted: bool,
+	token:          ^Token,
 }
 
 Scroll :: struct {
@@ -40,6 +44,7 @@ WINDOW_HEIGHT :: 720
 
 TOKEN_NUMBER :: 25
 CELL_SIZE :: 100
+HIGHLIGHT_SIZE :: CELL_SIZE + 10
 PLAYER_HAND_SIZE :: 20
 OFFSET_X :: 370
 OFFSET_Y :: 110
@@ -70,14 +75,13 @@ color_to_rlcolor :: proc(color: Color) -> rl.Color {
 	return rl.DARKPURPLE
 }
 
-draw_board :: proc(board: []^Token, positions: []Vector2) {
-	rl.DrawRectangleV({OFFSET_X - 10, OFFSET_Y - 10}, {520, 520}, rl.BROWN)
+draw_board :: proc(board: []Cell, positions: []Vector2) {
 	for i in 0 ..< TOKEN_NUMBER {
-		if board[i] == nil {
+		if board[i].token == nil {
 			continue
 		}
 
-		token := board[i]^
+		token := board[i].token^
 		if token.owner != Owner.BOARD {
 			continue
 		}
@@ -201,7 +205,7 @@ draw_player_tokens :: proc(tokens: []Token, player: Owner) {
 	}
 }
 
-refill :: proc(tokens: []Token, board: []^Token) {
+refill :: proc(tokens: []Token, board: []Cell) {
 	refills: [dynamic]^Token
 
 	for &token in tokens {
@@ -212,9 +216,9 @@ refill :: proc(tokens: []Token, board: []^Token) {
 	rand.shuffle(refills[:])
 
 	for i in 0 ..< TOKEN_NUMBER {
-		if board[i] == nil {
-			board[i] = pop(&refills)
-			board[i].owner = Owner.BOARD
+		if board[i].token == nil {
+			board[i].token = pop(&refills)
+			board[i].token.owner = Owner.BOARD
 		}
 		if len(refills) == 0 {
 			break
@@ -222,6 +226,20 @@ refill :: proc(tokens: []Token, board: []^Token) {
 	}
 
 	fmt.println(board)
+}
+
+draw_hovers :: proc(cell_x, cell_y: f32) {
+	if cell_x < 0 || cell_x > 5 {
+		return
+	}
+
+	if cell_y < 0 || cell_y > 5 {
+		return
+	}
+
+	x := i32(cell_x) * CELL_SIZE + CELL_SIZE / 2
+	y := i32(cell_y) * CELL_SIZE + CELL_SIZE / 2
+	rl.DrawCircle(x + OFFSET_X, y + OFFSET_Y, HIGHLIGHT_SIZE / 2, rl.PURPLE)
 }
 
 main :: proc() {
@@ -257,21 +275,21 @@ main :: proc() {
 	}
 
 	tokens := [?]Token {
-		0 ..= 3 = Token{Color.BLACK, Owner.BOARD, false},
-		4 ..= 7 = Token{Color.WHITE, Owner.BOARD, false},
-		8 ..= 11 = Token{Color.RED, Owner.BOARD, false},
-		12 ..= 15 = Token{Color.GREEN, Owner.BOARD, false},
-		16 ..= 19 = Token{Color.BLUE, Owner.BOARD, false},
-		20 ..= 22 = Token{Color.GOLD, Owner.BOARD, false},
-		23 ..= 24 = Token{Color.PEARL, Owner.BOARD, false},
+		0 ..= 3 = Token{Color.BLACK, Owner.BOARD},
+		4 ..= 7 = Token{Color.WHITE, Owner.BOARD},
+		8 ..= 11 = Token{Color.RED, Owner.BOARD},
+		12 ..= 15 = Token{Color.GREEN, Owner.BOARD},
+		16 ..= 19 = Token{Color.BLUE, Owner.BOARD},
+		20 ..= 22 = Token{Color.GOLD, Owner.BOARD},
+		23 ..= 24 = Token{Color.PEARL, Owner.BOARD},
 	}
 
 	scrolls: [3]Scroll
 	scrolls[0].owner = Owner.PLAYER2
 
-	board: [TOKEN_NUMBER]^Token
+	board: [TOKEN_NUMBER]Cell // TODO: transform board into map of Vector2 -> Cell
 	for i in 0 ..< TOKEN_NUMBER {
-		board[i] = &tokens[i]
+		board[i].token = &tokens[i]
 	}
 	rand.shuffle(board[:])
 
@@ -280,9 +298,14 @@ main :: proc() {
 			refill(tokens[:], board[:])
 		}
 
+		cell_x: f32 = f32(rl.GetMouseX() - OFFSET_X) / CELL_SIZE
+		cell_y: f32 = f32(rl.GetMouseY() - OFFSET_Y) / CELL_SIZE
+
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.RAYWHITE)
 
+		rl.DrawRectangleV({OFFSET_X - 10, OFFSET_Y - 10}, {520, 520}, rl.BROWN)
+		draw_hovers(cell_x, cell_y)
 		draw_board(board[:], positions[:])
 		draw_player_tokens(tokens[:], Owner.PLAYER1)
 		draw_player_tokens(tokens[:], Owner.PLAYER2)
