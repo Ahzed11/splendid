@@ -2,6 +2,7 @@ package main
 import "core:fmt"
 import "core:math/rand"
 import "core:os"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import rl "vendor:raylib"
@@ -24,6 +25,7 @@ Owner :: enum {
 }
 
 Vector2 :: [2]u8
+MousePosition :: [2]f32
 
 Token :: struct {
 	color: Color,
@@ -75,20 +77,19 @@ color_to_rlcolor :: proc(color: Color) -> rl.Color {
 	return rl.DARKPURPLE
 }
 
-draw_board :: proc(board: []Cell, positions: []Vector2) {
-	for i in 0 ..< TOKEN_NUMBER {
-		if board[i].token == nil {
+draw_board :: proc(board: map[Vector2]Cell, positions: []Vector2) {
+	for key, cell in board {
+		if cell.token == nil {
 			continue
 		}
 
-		token := board[i].token^
-		if token.owner != Owner.BOARD {
+		if cell.token.owner != Owner.BOARD {
 			continue
 		}
 
-		x := i32(positions[i][0]) * CELL_SIZE + CELL_SIZE / 2
-		y := i32(positions[i][1]) * CELL_SIZE + CELL_SIZE / 2
-		color := color_to_rlcolor(token.color)
+		x := i32(key[0]) * CELL_SIZE + CELL_SIZE / 2
+		y := i32(key[1]) * CELL_SIZE + CELL_SIZE / 2
+		color := color_to_rlcolor(cell.token.color)
 		rl.DrawCircle(x + OFFSET_X, y + OFFSET_Y, CELL_SIZE / 2, color)
 	}
 }
@@ -205,7 +206,7 @@ draw_player_tokens :: proc(tokens: []Token, player: Owner) {
 	}
 }
 
-refill :: proc(tokens: []Token, board: []Cell) {
+refill :: proc(tokens: []Token, board: map[Vector2]Cell) {
 	refills: [dynamic]^Token
 
 	for &token in tokens {
@@ -215,31 +216,61 @@ refill :: proc(tokens: []Token, board: []Cell) {
 	}
 	rand.shuffle(refills[:])
 
-	for i in 0 ..< TOKEN_NUMBER {
-		if board[i].token == nil {
-			board[i].token = pop(&refills)
-			board[i].token.owner = Owner.BOARD
+	for key, &cell in board {
+		if cell.token.owner == .BAG {
+			cell.token = pop(&refills)
+			cell.token.owner = Owner.BOARD
 		}
+
 		if len(refills) == 0 {
 			break
 		}
 	}
-
-	fmt.println(board)
 }
 
-draw_hovers :: proc(cell_x, cell_y: f32) {
-	if cell_x < 0 || cell_x > 5 {
+draw_hovers :: proc(cell_x, cell_y: f32, color: rl.Color = rl.PURPLE) {
+	if cell_x < 0 || cell_x > 4 {
 		return
 	}
 
-	if cell_y < 0 || cell_y > 5 {
+	if cell_y < 0 || cell_y > 4 {
 		return
 	}
 
 	x := i32(cell_x) * CELL_SIZE + CELL_SIZE / 2
 	y := i32(cell_y) * CELL_SIZE + CELL_SIZE / 2
-	rl.DrawCircle(x + OFFSET_X, y + OFFSET_Y, HIGHLIGHT_SIZE / 2, rl.PURPLE)
+	rl.DrawCircle(x + OFFSET_X, y + OFFSET_Y, HIGHLIGHT_SIZE / 2, color)
+}
+
+draw_selection :: proc(selection: []Vector2, board: map[Vector2]Cell) {
+	for position in selection {
+		draw_hovers(f32(position[0]), f32(position[1]), rl.ORANGE)
+	}
+}
+
+sort_selection :: proc(i, j: Vector2) -> bool {
+	return i[0] + i[1] < j[0] + j[1]
+}
+
+select :: proc(selection: []Vector2, selection_id: ^int, choice: Vector2) {
+	// Deselect element
+	for i in 0 ..< 3 {
+		if selection[i] == choice {
+			selection[i] = {10, 10}
+			slice.sort_by(selection, sort_selection)
+			selection_id^ -= 1
+
+			return
+		}
+	}
+
+	if selection_id^ >= 3 {
+		return
+	}
+
+	// Select element
+	selection[selection_id^] = choice
+	selection_id^ += 1
 }
 
 main :: proc() {
@@ -280,33 +311,44 @@ main :: proc() {
 		8 ..= 11 = Token{Color.RED, Owner.BOARD},
 		12 ..= 15 = Token{Color.GREEN, Owner.BOARD},
 		16 ..= 19 = Token{Color.BLUE, Owner.BOARD},
-		20 ..= 22 = Token{Color.GOLD, Owner.BOARD},
-		23 ..= 24 = Token{Color.PEARL, Owner.BOARD},
+		20 ..= 22 = Token{Color.GOLD, Owner.BAG},
+		23 ..= 24 = Token{Color.PEARL, Owner.BAG},
 	}
+	rand.shuffle(positions[:])
 
 	scrolls: [3]Scroll
 	scrolls[0].owner = Owner.PLAYER2
 
-	board: [TOKEN_NUMBER]Cell // TODO: transform board into map of Vector2 -> Cell
+	board: map[Vector2]Cell
 	for i in 0 ..< TOKEN_NUMBER {
-		board[i].token = &tokens[i]
+		board[positions[i]] = Cell {
+			is_highlighted = false,
+			token          = &tokens[i],
+		}
 	}
-	rand.shuffle(board[:])
+
+	selection := [3]Vector2{{10, 10}, {10, 10}, {10, 10}}
+	selection_id := 0
 
 	for !rl.WindowShouldClose() {
 		if rl.IsKeyDown(.ENTER) {
-			refill(tokens[:], board[:])
+			refill(tokens[:], board)
 		}
 
 		cell_x: f32 = f32(rl.GetMouseX() - OFFSET_X) / CELL_SIZE
 		cell_y: f32 = f32(rl.GetMouseY() - OFFSET_Y) / CELL_SIZE
+
+		if rl.IsMouseButtonPressed(.LEFT) {
+			select(selection[:], &selection_id, {u8(cell_x), u8(cell_y)})
+		}
 
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.RAYWHITE)
 
 		rl.DrawRectangleV({OFFSET_X - 10, OFFSET_Y - 10}, {520, 520}, rl.BROWN)
 		draw_hovers(cell_x, cell_y)
-		draw_board(board[:], positions[:])
+		draw_selection(selection[:], board)
+		draw_board(board, positions[:])
 		draw_player_tokens(tokens[:], Owner.PLAYER1)
 		draw_player_tokens(tokens[:], Owner.PLAYER2)
 		draw_scrolls(scrolls[:])
